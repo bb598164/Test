@@ -1,0 +1,42 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: VidGrab
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Self-test of the Python download engine
+        run: python tools/engine_selftest.py
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build the APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --console=plain assembleRelease
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VidGrab-apk
+          path: VidGrab/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
