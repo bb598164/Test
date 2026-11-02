@@ -1,0 +1,63 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Python 3.13 is what the app embeds. Chaquopy uses the same version on the build machine to
+      # pre-compile the Python code (faster start-up), and the engine self-test below needs it too.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Self-test of the Python download engine (no network needed)
+        run: python tools/engine_selftest.py
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build the APK
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew --no-daemon --console=plain assembleRelease 2>&1 | tee build.log
+
+      # When the build fails, the real reason is in the lines that start with "e:" (Kotlin compiler errors).
+      # They are copied here, and into the "Summary" page of the run, so they are easy to find and send.
+      - name: Show the compile errors
+        if: failure()
+        run: |
+          {
+            echo "### Kotlin / Gradle errors"
+            echo '```'
+            grep -E "^e: |^w: .*(Unresolved|mismatch)|error:|What went wrong|Execution failed|Could not " build.log | head -120 || true
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the full build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VidGrab-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
